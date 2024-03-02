@@ -45,5 +45,5 @@ func BuildAndStartServer(app *chi.Mux) {
 
 	<-stopChan
 	fmt.Println("\n Shutting down")
-	time.Sleep(1 * time.Second)
+	time.Sleep(5 * time.Second)
 }

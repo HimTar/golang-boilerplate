@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/himtar/go-boilerplate/internal/handlers"
-	"github.com/himtar/go-boilerplate/internal/server"
+	"github.com/himtar/go-boilerplate/libraries/server"
 )
 
 func app() *chi.Mux {
