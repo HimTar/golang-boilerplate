@@ -9,9 +9,12 @@ A simple and clean Go web server boilerplate built with Chi router and custom mi
 - ✅ Custom router with method validation
 - ✅ Chi router integration with middleware
 - ✅ Hot reload development support with Air
+- ✅ Comprehensive response helper library
+- ✅ Consistent JSON API responses
 - ✅ Error handling utilities
-- ✅ Authentication handlers
-- ✅ Groups handlers
+- ✅ Authentication handlers with JWT example
+- ✅ CRUD operations example
+- ✅ Windows PowerShell compatibility
 
 ## Project Structure
 
@@ -19,14 +22,18 @@ A simple and clean Go web server boilerplate built with Chi router and custom mi
 ├── cmd/
 │   └── server/          # Application entry point
 ├── internal/
-│   └── handlers/        # HTTP handlers
+│   ├── auth/            # Authentication handlers and routes
+│   └── order/           # Order-related handlers
 ├── libraries/
-│   └── server/          # Server utilities and configuration
+│   ├── env.go           # Environment configuration
+│   └── server.go        # Server utilities and configuration
 ├── pkg/
-│   ├── errors/          # Error handling utilities
-│   ├── helpers/         # Helper functions
+│   ├── errors/          # Legacy error handling utilities
+│   ├── response/        # Modern response helper library
 │   └── router/          # Custom router implementation
-└── docs/                # Documentation
+├── docs/                # Documentation
+│   └── response-helpers.md  # Response helper usage guide
+└── tmp/                 # Build artifacts and logs
 ```
 
 ## Getting Started
@@ -69,6 +76,11 @@ make dev
 air
 ```
 
+**Note for Windows users**: If `make` is not available, install it via:
+- Chocolatey: `choco install make`
+- Scoop: `scoop install make`
+- winget: `winget install GnuWin32.Make`
+
 #### Production:
 
 **Linux/Mac:**
@@ -86,15 +98,47 @@ The server will start on the port specified in your `.env` file (default: `:8000
 ## API Endpoints
 
 ### Authentication
-- `GET /auth/login` - Login endpoint
+- `GET /auth/login` - Login endpoint (returns JWT token example)
 - `GET /auth/register` - Registration endpoint
+- `GET /auth/register?error=validation` - Test validation errors
 
 ### Groups
-- `GET /group/get` - Get groups
+- `GET /group/get` - Get groups with pagination
 - `POST /group/create` - Create group
+- `POST /group/create?duplicate=true` - Test conflict error
+- `POST /group/create?invalid=true` - Test validation error
 
 ### Health Check
 - `GET /` - Returns "Hello, World!"
+
+## Testing API Endpoints
+
+### Using PowerShell (Windows):
+```powershell
+# Test successful login
+Invoke-WebRequest -Uri "http://localhost:8000/auth/login"
+
+# Test registration
+Invoke-WebRequest -Uri "http://localhost:8000/auth/register"
+
+# Test validation errors
+Invoke-WebRequest -Uri "http://localhost:8000/auth/register?error=validation"
+
+# Test groups
+Invoke-WebRequest -Uri "http://localhost:8000/group/get"
+```
+
+### Using curl (Linux/Mac or after installing real curl on Windows):
+```bash
+# Test successful login
+curl "http://localhost:8000/auth/login"
+
+# Test registration with validation error
+curl "http://localhost:8000/auth/register?error=validation"
+
+# Test groups
+curl "http://localhost:8000/group/get"
+```
 
 ## Configuration
 
@@ -115,22 +159,82 @@ This project uses [Air](https://github.com/cosmtrek/air) for hot reload during d
 
 To install Air:
 ```bash
-go install github.com/cosmtrek/air@latest
+go install github.com/air-verse/air@latest
 ```
+
+**Note**: The Air project has moved from `cosmtrek/air` to `air-verse/air`.
 
 ### Adding New Routes
 
-1. Create handler functions in `internal/handlers/`
-2. Register routes using the custom router in [`pkg/router/router.go`](pkg/router/router.go)
-3. Mount the routes in [`cmd/server/main.go`](cmd/server/main.go)
+1. Create handler functions in `internal/[module]/` (e.g., `internal/auth/`)
+2. Use the response helper library from `pkg/response/` for consistent API responses
+3. Register routes using Chi router
+4. Mount the routes in [`cmd/server/main.go`](cmd/server/main.go)
 
-## Error Handling
+Example handler with response helpers:
+```go
+func CreateUserHandler(w http.ResponseWriter, r *http.Request) {
+    // Validate input
+    if err := validateInput(r); err != nil {
+        response.SendBadRequest(w, "Invalid input", err.Error())
+        return
+    }
+    
+    // Create user
+    user, err := createUser(userData)
+    if err != nil {
+        response.SendInternalServerError(w, "Failed to create user")
+        return
+    }
+    
+    // Success response
+    response.SendCreated(w, "User created successfully", user)
+}
+```
 
-The project includes custom error handling utilities in [`pkg/errors/errors.go`](pkg/errors/errors.go):
+## Response Handling
 
-- `BadRequest(w, message)` - 400 Bad Request
-- `MethodNotAllowed(w)` - 405 Method Not Allowed  
-- `InternalServerError(w, message)` - 500 Internal Server Error
+The project includes a comprehensive response helper library in [`pkg/response/response.go`](pkg/response/response.go):
+
+### Success Responses (2xx)
+- `SendSuccess(w, message, data)` - 200 OK
+- `SendCreated(w, message, data)` - 201 Created
+- `SendAccepted(w, message)` - 202 Accepted
+- `SendNoContent(w)` - 204 No Content
+
+### Client Error Responses (4xx)
+- `SendBadRequest(w, message, error)` - 400 Bad Request
+- `SendUnauthorized(w, message)` - 401 Unauthorized
+- `SendForbidden(w, message)` - 403 Forbidden
+- `SendNotFound(w, message)` - 404 Not Found
+- `SendMethodNotAllowed(w, methods...)` - 405 Method Not Allowed
+- `SendConflict(w, message)` - 409 Conflict
+- `SendUnprocessableEntity(w, message, validationErrors)` - 422 Unprocessable Entity
+- `SendTooManyRequests(w, message)` - 429 Too Many Requests
+
+### Server Error Responses (5xx)
+- `SendInternalServerError(w, message)` - 500 Internal Server Error
+- `SendNotImplemented(w, message)` - 501 Not Implemented
+- `SendBadGateway(w, message)` - 502 Bad Gateway
+- `SendServiceUnavailable(w, message)` - 503 Service Unavailable
+- `SendGatewayTimeout(w, message)` - 504 Gateway Timeout
+
+### Response Format
+All responses follow a consistent JSON structure:
+```json
+{
+  "success": true/false,
+  "message": "Human readable message",
+  "data": {}, // Optional, for successful responses
+  "error": "Error description" // Optional, for error responses
+}
+```
+
+For detailed usage examples, see [`docs/response-helpers.md`](docs/response-helpers.md).
+
+## Legacy Error Handling
+
+The project also includes legacy error handling utilities in [`pkg/errors/errors.go`](pkg/errors/errors.go) for backward compatibility.
 
 ## Contributing
 
