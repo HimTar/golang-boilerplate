@@ -11,7 +11,7 @@ func BadRequest(w http.ResponseWriter, message string) {
 }
 
 func MethodNotAllowed(w http.ResponseWriter) {
-	http.Error(w,  "Method Not Allowed !", http.StatusMethodNotAllowed)
+	http.Error(w, "Method Not Allowed !", http.StatusMethodNotAllowed)
 }
 
 func InternalServerError(w http.ResponseWriter, message string) {
@@ -19,5 +19,5 @@ func InternalServerError(w http.ResponseWriter, message string) {
 		message = "Internal Server Error !"
 	}
 
-	http.Error(w, message, http.StatusBadRequest)
+	http.Error(w, message, http.StatusInternalServerError)
 }

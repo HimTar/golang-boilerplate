@@ -1,4 +1,4 @@
-package server
+package libraries
 
 import (
 	"log"
@@ -9,19 +9,19 @@ import (
 
 // Variables is an immutable struct representing configuration variables.
 type Variables struct {
-	env    string
-	dbURI  string
-	db     string
-	port   string
+	env   string
+	dbURI string
+	db    string
+	port  string
 }
 
 // function to load env variables
 func LoadENVVariables() *Variables {
 
 	// Load variables from the .env file
-    if err := godotenv.Load(); err != nil {
+	if err := godotenv.Load(); err != nil {
 		log.Fatalf("Error loading .env file: %v", err)
-    }
+	}
 
 	return &Variables{
 		env:   getEnvOrDefault("ENV", "development"),

@@ -1,4 +1,4 @@
-package server
+package libraries
 
 import (
 	"fmt"
@@ -13,7 +13,7 @@ import (
 	"github.com/go-chi/chi/middleware"
 )
 
-func prepareServer (app *chi.Mux) *chi.Mux {
+func prepareServer(app *chi.Mux) *chi.Mux {
 	chiServer := chi.NewRouter()
 
 	// basic middleware setup
@@ -39,7 +39,7 @@ func BuildAndStartServer(app *chi.Mux) {
 	server := prepareServer(app)
 
 	// start the server
-	log.Println("\n Starting server on port", env)
+	log.Println("\n Starting server on port", env.Port())
 
 	http.ListenAndServe(env.Port(), server)
 

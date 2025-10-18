@@ -4,20 +4,20 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi"
-	"github.com/himtar/go-boilerplate/internal/handlers"
-	"github.com/himtar/go-boilerplate/libraries/server"
+	"github.com/himtar/go-boilerplate/internal/auth"
+	server "github.com/himtar/go-boilerplate/libraries"
 )
 
 func app() *chi.Mux {
-	server := chi.NewRouter()
+	router := chi.NewRouter()
 
-	server.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Hello, World!"))
+	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("pong"))
 	})
 
-	server.Mount("/auth", handlers.AuthHandler())
+	router.Mount("/auth", auth.Router())
 
-	return server
+	return router
 }
 
 func main() {
