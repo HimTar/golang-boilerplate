@@ -3,7 +3,7 @@ package auth
 import (
 	"net/http"
 
-	"github.com/himtar/go-boilerplate/pkg/response"
+	"github.com/himtar/go-boilerplate/internal/libraries/response"
 )
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {

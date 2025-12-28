@@ -1,6 +1,6 @@
 # Go Boilerplate
 
-A simple and clean Go web server boilerplate built with Chi router and custom middleware.
+A simple and clean Go web server boilerplate built with Chi router, custom middleware, and a structured logger.
 
 ## Features
 
@@ -15,6 +15,7 @@ A simple and clean Go web server boilerplate built with Chi router and custom mi
 - ✅ Authentication handlers with JWT example
 - ✅ CRUD operations example
 - ✅ Windows PowerShell compatibility
+- ✅ Structured logging with pluggable logger
 
 ## Project Structure
 
@@ -24,16 +25,16 @@ A simple and clean Go web server boilerplate built with Chi router and custom mi
 ├── internal/
 │   ├── auth/            # Authentication handlers and routes
 │   └── order/           # Order-related handlers
-├── libraries/
-│   ├── env.go           # Environment configuration
-│   └── server.go        # Server utilities and configuration
 ├── pkg/
-│   ├── errors/          # Legacy error handling utilities
-│   ├── response/        # Modern response helper library
-│   └── router/          # Custom router implementation
+│   ├── env/             # Environment configuration
+│   ├── logger/          # Structured logger implementation
+│   ├── middleware/      # HTTP middleware
+│   ├── server/          # Server utilities, custom router and configuration
 ├── docs/                # Documentation
-│   └── response-helpers.md  # Response helper usage guide
-└── tmp/                 # Build artifacts and logs
+│   ├── response-helpers.md  # Response helper usage guide
+│   ├── logger-usage.md      # Logger usage and configuration
+│   └── router-wrapper.md    # Router wrapper and middleware
+└── logs/                # Application logs
 ```
 
 ## Getting Started
@@ -155,7 +156,7 @@ ENV="development"
 
 ### Hot Reload
 
-This project uses [Air](https://github.com/cosmtrek/air) for hot reload during development. The configuration is in [.air.toml](.air.toml).
+This project uses [Air](https://github.com/air-verse/air) for hot reload during development. The configuration is in [.air.toml](.air.toml).
 
 To install Air:
 ```bash
@@ -168,7 +169,7 @@ go install github.com/air-verse/air@latest
 
 1. Create handler functions in `internal/[module]/` (e.g., `internal/auth/`)
 2. Use the response helper library from `pkg/response/` for consistent API responses
-3. Register routes using Chi router
+3. Register routes using the custom router in `pkg/router/`
 4. Mount the routes in [`cmd/server/main.go`](cmd/server/main.go)
 
 Example handler with response helpers:
@@ -231,6 +232,11 @@ All responses follow a consistent JSON structure:
 ```
 
 For detailed usage examples, see [`docs/response-helpers.md`](docs/response-helpers.md).
+
+## Logging
+
+The project uses a structured logger in [`pkg/logger/`](pkg/logger/) for consistent, pluggable logging across the application.  
+See [`docs/logger-usage.md`](docs/logger-usage.md) for configuration and usage examples.
 
 ## Legacy Error Handling
 
