@@ -34,12 +34,12 @@ func (a *AuthModule) Router() chi.Router {
 
 // loginHandler is the HTTP handler for the /login endpoint.
 func (a *AuthModule) loginHandler(w http.ResponseWriter, r *http.Request) {
-	a.Logger.Info("AuthModule: /login called")
+	a.Logger.Info(r.Context(), "AuthModule: /login called")
 	// TODO: Implement login logic using a.Config, a.Logger, etc.
 }
 
 // registerHandler is the HTTP handler for the /register endpoint.
 func (a *AuthModule) registerHandler(w http.ResponseWriter, r *http.Request) {
-	a.Logger.Info("AuthModule: /register called")
+	a.Logger.Info(r.Context(), "AuthModule: /register called")
 	// TODO: Implement registration logic using a.Config, a.Logger, etc.
 }

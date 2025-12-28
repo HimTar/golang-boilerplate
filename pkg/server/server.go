@@ -43,6 +43,7 @@ type ServerConfig struct {
 
 // DefaultServerConfig returns sensible production defaults
 func DefaultServerConfig(
+	ctx context.Context,
 	app *HTTPRouter,
 	port string,
 	middlewares []Middleware,
@@ -83,7 +84,7 @@ func DefaultServerConfig(
 		rht = *readHeaderTimeout
 	}
 
-	(*logger).Info("Initializing ServerConfig for port %s", port)
+	(*logger).Info(ctx, "Initializing ServerConfig for port %s", port)
 	return &ServerConfig{
 		App:               app,
 		Port:              port,
@@ -98,38 +99,38 @@ func DefaultServerConfig(
 }
 
 // Validate checks if configuration is valid
-func (c *ServerConfig) Validate() error {
-	c.Logger.Info("Validating server configuration...")
+func (c *ServerConfig) Validate(ctx context.Context) error {
+	c.Logger.Info(ctx, "Validating server configuration...")
 	if c.App == nil {
-		c.Logger.Error("App cannot be nil")
+		c.Logger.Error(ctx, "App cannot be nil")
 		return errors.New("app cannot be nil")
 	}
 	if c.Port == "" {
-		c.Logger.Error("Port cannot be empty")
+		c.Logger.Error(ctx, "Port cannot be empty")
 		return errors.New("port cannot be empty")
 	}
 	if c.ShutdownTimeout <= 0 {
-		c.Logger.Error("Shutdown timeout must be positive")
+		c.Logger.Error(ctx, "Shutdown timeout must be positive")
 		return errors.New("shutdown timeout must be positive")
 	}
 	if c.Logger == nil {
-		c.Logger.Error("Logger cannot be empty")
+		c.Logger.Error(ctx, "Logger cannot be empty")
 		return errors.New("Logger cannot be empty")
 	}
-	c.Logger.Info("Server configuration validated successfully")
+	c.Logger.Info(ctx, "Server configuration validated successfully")
 	return nil
 }
 
 // prepareRouter applies middleware to the application router
-func prepareRouter(app *HTTPRouter, middlewares []Middleware, logger logger.Logger) *HTTPRouter {
+func prepareRouter(ctx context.Context, app *HTTPRouter, middlewares []Middleware, logger logger.Logger) *HTTPRouter {
 	server := New()
 
 	// register middlewares
 	if len(middlewares) > 0 {
-		logger.Info("Preparing router with %d middleware(s)...", len(middlewares))
+		logger.Info(ctx, "Preparing router with %d middleware(s)...", len(middlewares))
 		server.Use(middlewares...)
 	} else {
-		logger.Info("Preparing router with no middleware")
+		logger.Info(ctx, "Preparing router with no middleware")
 	}
 
 	// mounting app on the server
@@ -140,19 +141,19 @@ func prepareRouter(app *HTTPRouter, middlewares []Middleware, logger logger.Logg
 
 // BuildAndStartServer starts an HTTP server with graceful shutdown
 // Returns error only if server fails to start or configuration is invalid
-func BuildAndStartServer(config *ServerConfig) error {
-	config.Logger.Info("Starting BuildAndStartServer...")
+func BuildAndStartServer(ctx context.Context, config *ServerConfig) error {
+	config.Logger.Info(ctx, "Starting BuildAndStartServer...")
 	// Validate configuration
-	if err := config.Validate(); err != nil {
-		config.Logger.Error("Invalid server configuration: %v", err)
+	if err := config.Validate(ctx); err != nil {
+		config.Logger.Error(ctx, "Invalid server configuration: %v", err)
 		return fmt.Errorf("invalid server configuration: %w", err)
 	}
 
 	// Prepare router with middleware
-	router := prepareRouter(config.App, config.Middlewares, config.Logger)
+	router := prepareRouter(ctx, config.App, config.Middlewares, config.Logger)
 
 	// Create HTTP server with timeouts
-	config.Logger.Info("Creating HTTP server on port %s", config.Port)
+	config.Logger.Info(ctx, "Creating HTTP server on port %s", config.Port)
 	srv := &http.Server{
 		Addr:              config.Port,
 		Handler:           router.Handler(),
@@ -168,65 +169,65 @@ func BuildAndStartServer(config *ServerConfig) error {
 
 	// Start server in goroutine
 	go func() {
-		config.Logger.Info("HTTP server starting on %s", config.Port)
+		config.Logger.Info(ctx, "HTTP server starting on %s", config.Port)
 
 		// Call startup hook if defined
 		if config.OnStartup != nil {
-			config.Logger.Info("Executing startup hook...")
+			config.Logger.Info(ctx, "Executing startup hook...")
 			if err := config.OnStartup(); err != nil {
-				config.Logger.Error("Startup hook failed: %v", err)
+				config.Logger.Error(ctx, "Startup hook failed: %v", err)
 				serverErrors <- fmt.Errorf("startup hook failed: %w", err)
 				return
 			}
 		}
 
-		config.Logger.Info("Server is ready to accept connections on %s", config.Port)
-		config.Logger.Info("ListenAndServe called")
+		config.Logger.Info(ctx, "Server is ready to accept connections on %s", config.Port)
+		config.Logger.Info(ctx, "ListenAndServe called")
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			config.Logger.Error("Server failed: %v", err)
+			config.Logger.Error(ctx, "Server failed: %v", err)
 			serverErrors <- fmt.Errorf("server failed: %w", err)
 		}
 	}()
 
 	// Setup signal handling for graceful shutdown
-	config.Logger.Info("Setting up signal handling for graceful shutdown...")
+	config.Logger.Info(ctx, "Setting up signal handling for graceful shutdown...")
 	stopChan := make(chan os.Signal, 1)
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
 	// Block until we receive a signal or server error
 	select {
 	case err := <-serverErrors:
-		config.Logger.Error("Server error received: %v", err)
+		config.Logger.Error(ctx, "Server error received: %v", err)
 		return err
 	case sig := <-stopChan:
-		config.Logger.Info("Received signal: %v, initiating graceful shutdown...", sig)
+		config.Logger.Info(ctx, "Received signal: %v, initiating graceful shutdown...", sig)
 	}
 
 	// Create shutdown context with timeout
-	config.Logger.Info("Creating shutdown context with timeout: %v", config.ShutdownTimeout)
-	ctx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
+	config.Logger.Info(ctx, "Creating shutdown context with timeout: %v", config.ShutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
 	defer cancel()
 
 	// Call shutdown hook if defined
 	if config.OnShutdown != nil {
-		config.Logger.Info("Executing shutdown hooks...")
+		config.Logger.Info(ctx, "Executing shutdown hooks...")
 		if err := config.OnShutdown(); err != nil {
-			config.Logger.Error("Shutdown hook failed: %v", err)
+			config.Logger.Error(ctx, "Shutdown hook failed: %v", err)
 		}
 	}
 
 	// Attempt graceful shutdown
-	config.Logger.Info("Shutting down server (timeout: %v)...", config.ShutdownTimeout)
-	if err := srv.Shutdown(ctx); err != nil {
+	config.Logger.Info(ctx, "Shutting down server (timeout: %v)...", config.ShutdownTimeout)
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		// Force close if graceful shutdown fails
-		config.Logger.Error("Graceful shutdown failed, forcing close: %v", err)
+		config.Logger.Error(ctx, "Graceful shutdown failed, forcing close: %v", err)
 		if closeErr := srv.Close(); closeErr != nil {
-			config.Logger.Error("Failed to close server: %v", closeErr)
+			config.Logger.Error(ctx, "Failed to close server: %v", closeErr)
 			return fmt.Errorf("failed to close server: %w", closeErr)
 		}
 		return fmt.Errorf("forced shutdown due to: %w", err)
 	}
 
-	config.Logger.Info("Server stopped gracefully")
+	config.Logger.Info(ctx, "Server stopped gracefully")
 	return nil
 }

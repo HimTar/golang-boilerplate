@@ -1,18 +1,56 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/himtar/go-boilerplate/pkg/logger"
 )
 
-// Common middleware wrappers for easy access
+// Context keys for trace and request IDs
+type ctxKey string
 
-// RequestIDMiddleware adds unique request ID to each request
+const (
+	TraceIDKey   ctxKey = "trace_id"
+	RequestIDKey ctxKey = "request_id"
+)
+
+// TraceIDMiddleware generates a unique trace ID for each request and injects it into the context.
+// If X-Trace-ID header is present, it uses that value instead.
+func TraceIDMiddleware() Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			traceID := r.Header.Get("X-Trace-ID")
+			if traceID == "" {
+				traceID = uuid.New().String()
+			}
+
+			w.Header().Set("X-Trace-ID", traceID)
+			ctx := context.WithValue(r.Context(), TraceIDKey, traceID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// RequestIDMiddleware adds unique request ID to each request and injects it into the context.
 func RequestIDMiddleware() Middleware {
-	return middleware.RequestID
+	return func(next http.Handler) http.Handler {
+		return middleware.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestID := r.Header.Get("X-Request-Id")
+			if requestID == "" {
+				requestID = r.Header.Get("X-Request-ID")
+			}
+			if requestID == "" {
+				requestID = middleware.GetReqID(r.Context())
+			}
+			w.Header().Set("X-Request-ID", requestID)
+			ctx := context.WithValue(r.Context(), RequestIDKey, requestID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		}))
+	}
 }
 
 // RealIPMiddleware extracts real client IP from headers
@@ -39,29 +77,30 @@ func LoggerMiddleware(log logger.Logger) Middleware {
 				realIP = r.RemoteAddr
 			}
 
-			// Extract request ID if present
-			requestID := r.Header.Get("X-Request-Id")
-			if requestID == "" {
-				requestID = r.Header.Get("X-Request-ID")
-			}
+			// Extract trace ID and request ID from context
+			traceID, _ := r.Context().Value(TraceIDKey).(string)
+			requestID, _ := r.Context().Value(RequestIDKey).(string)
 
 			userAgent := r.UserAgent()
 
 			// Log as JSON
-			log.InfoJSON(map[string]interface{}{
-				"event":     "http_request",
-				"method":    r.Method,
-				"path":      r.URL.Path,
-				"status":    ww.Status(),
-				"size":      ww.BytesWritten(),
-				"duration":  duration.String(),
-				"ip":        realIP,
-				"requestId": requestID,
-				"userAgent": userAgent,
+			log.InfoJSON(r.Context(), map[string]interface{}{
+				"event":      "http_request",
+				"method":     r.Method,
+				"path":       r.URL.Path,
+				"status":     ww.Status(),
+				"size":       ww.BytesWritten(),
+				"duration":   duration.String(),
+				"ip":         realIP,
+				"trace_id":   traceID,
+				"request_id": requestID,
+				"userAgent":  userAgent,
 			})
 		})
 	}
 }
+
+// ...rest of the file unchanged...
 
 // RecovererMiddleware recovers from panics and returns 500 Internal Server Error
 func RecovererMiddleware() Middleware {

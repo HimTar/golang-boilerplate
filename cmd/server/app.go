@@ -22,7 +22,7 @@ func NewApp(config *env.Variables, log logger.Logger) *App {
 
 	// Application layer: register endpoints
 	r.GET("/ping", func(w http.ResponseWriter, r *http.Request) {
-		log.Info("Ping endpoint called")
+		log.Info(r.Context(), "Ping endpoint called")
 		w.Write([]byte("pong"))
 	})
 

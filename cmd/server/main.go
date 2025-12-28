@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
-	"time"
 
 	"github.com/himtar/go-boilerplate/internal/libraries/env"
 	"github.com/himtar/go-boilerplate/pkg/logger"
@@ -11,6 +11,9 @@ import (
 )
 
 func main() {
+	// Create a single context for server lifecycle logs
+	serverContext := context.TODO()
+
 	// Load Config variables
 	configVariables, err := env.LoadENVVariables()
 	if err != nil {
@@ -27,11 +30,11 @@ func main() {
 		log.Println("ERROR: Server will not start due to logger initialization failure.")
 		os.Exit(1)
 	}
-	loggerInstance.Info("Logger initialized successfully.")
+	loggerInstance.Info(serverContext, "Logger initialized successfully.")
 
 	// Create server configuration with defaults
-	// Customize configuration
 	serverConfig := []server.Middleware{
+		server.TraceIDMiddleware(),
 		server.RequestIDMiddleware(),
 		server.RealIPMiddleware(),
 		server.LoggerMiddleware(loggerInstance),
@@ -41,6 +44,7 @@ func main() {
 	app := NewApp(configVariables, loggerInstance)
 
 	config, err := server.DefaultServerConfig(
+		serverContext,
 		app.Router(),
 		configVariables.Port(),
 		serverConfig,
@@ -52,34 +56,28 @@ func main() {
 		configVariables.READ_HEADER_TIMEOUT_MS(),
 	)
 	if err != nil {
-		loggerInstance.Error("ERROR: Failed to load server configurations: %v", err)
-		loggerInstance.Error("ERROR: Server will not start due to server configuration failure.")
+		loggerInstance.Error(serverContext, "ERROR: Failed to load server configurations: %v", err)
+		loggerInstance.Error(serverContext, "ERROR: Server will not start due to server configuration failure.")
 		os.Exit(1)
 	}
 
-	loggerInstance.Info("Server configuration created")
-
-	// Set custom timeouts (optional)
-	config.ReadTimeout = 15 * time.Second
-	config.WriteTimeout = 15 * time.Second
-	config.ShutdownTimeout = 10 * time.Second
-	loggerInstance.Info("Server timeouts set.")
+	loggerInstance.Info(serverContext, "Server configuration created")
 
 	// Add lifecycle hooks (optional)
 	config.OnStartup = func() error {
-		loggerInstance.Info("Server startup: Running initialization tasks...")
+		loggerInstance.Info(serverContext, "Server startup: Running initialization tasks...")
 		// Initialize database connections, caches, etc.
 		return nil
 	}
 
 	config.OnShutdown = func() error {
-		loggerInstance.Info("Server shutdown: Cleaning up resources...")
+		loggerInstance.Info(serverContext, "Server shutdown: Cleaning up resources...")
 		// Close database connections, flush logs, etc.
 		return nil
 	}
 
-	loggerInstance.Info("Starting server with graceful shutdown...")
-	if err := server.BuildAndStartServer(config); err != nil {
-		loggerInstance.Error("Server failed: %v", err)
+	loggerInstance.Info(serverContext, "Starting server with graceful shutdown...")
+	if err := server.BuildAndStartServer(serverContext, config); err != nil {
+		loggerInstance.Error(serverContext, "Server failed: %v", err)
 	}
 }

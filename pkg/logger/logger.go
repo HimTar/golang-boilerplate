@@ -1,15 +1,21 @@
 package logger
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"sync"
 	"time"
+)
 
-	"golang.org/x/mod/modfile"
+// Context keys for trace and request IDs
+type ctxKey string
+
+const (
+	TraceIDKey   ctxKey = "trace_id"
+	RequestIDKey ctxKey = "request_id"
 )
 
 // LogLevel represents the severity level of a log entry
@@ -25,24 +31,12 @@ const (
 
 // Logger interface for dependency injection
 type Logger interface {
-	Info(msg string, args ...interface{})
-	Error(msg string, args ...interface{})
-	Warn(msg string, args ...interface{})
-	Debug(msg string, args ...interface{})
-	Fatal(msg string, args ...interface{})
-	// InfoJSON logs a structured JSON payload at info level
-	InfoJSON(payload map[string]interface{})
-
-	// WithContext returns a new logger instance with additional context fields
-	WithContext(fields map[string]interface{}) Logger
-
-	// WithTraceID returns a new logger instance with trace ID
-	WithTraceID(traceID string) Logger
-
-	// WithField returns a new logger instance with a single field
-	WithField(key string, value interface{}) Logger
-
-	// Close closes the logger and flushes any buffered data
+	Info(ctx context.Context, msg string, args ...interface{})
+	Error(ctx context.Context, msg string, args ...interface{})
+	Warn(ctx context.Context, msg string, args ...interface{})
+	Debug(ctx context.Context, msg string, args ...interface{})
+	Fatal(ctx context.Context, msg string, args ...interface{})
+	InfoJSON(ctx context.Context, payload map[string]interface{})
 	Close() error
 }
 
@@ -52,43 +46,20 @@ type LogEntry struct {
 	Level     LogLevel               `json:"level"`
 	Message   string                 `json:"message"`
 	Context   map[string]interface{} `json:"context,omitempty"`
-	TraceID   string                 `json:"trace_id,omitempty"`
 	Service   string                 `json:"service,omitempty"`
 }
 
 // Config holds logger configuration
 type Config struct {
-	// LogFilePath is the path to the log file
-	LogFilePath string
-
-	// ServiceName identifies the service in logs
-	ServiceName string
-
-	// EnableConsole writes logs to stdout
+	LogFilePath   string
+	ServiceName   string
 	EnableConsole bool
-
-	// EnableFile writes logs to file
-	EnableFile bool
-
-	// MinLevel is the minimum log level to output (default: INFO)
-	MinLevel LogLevel
-}
-
-func getModuleNameFromGoMod() string {
-	data, err := os.ReadFile("go.mod")
-	if err != nil {
-		return ""
-	}
-	modFile, err := modfile.Parse("go.mod", data, nil)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(modFile.Module.Mod.Path)
+	EnableFile    bool
+	MinLevel      LogLevel
 }
 
 // DefaultConfig returns default logger configuration
 func DefaultConfig(serviceName string) *Config {
-
 	return &Config{
 		LogFilePath:   "logs/app.log",
 		ServiceName:   serviceName,
@@ -114,37 +85,25 @@ func NewJSONLogger(config *Config) (Logger, error) {
 	if config == nil {
 		return nil, fmt.Errorf("Config not found")
 	}
-
-	// Validate configuration
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
-
 	var writers []io.Writer
-
-	// Add console output if enabled
 	if config.EnableConsole {
 		writers = append(writers, os.Stdout)
 	}
-
-	// Add file output if enabled
 	if config.EnableFile {
-		// Ensure log directory exists
 		if err := os.MkdirAll("logs", 0755); err != nil {
 			return nil, fmt.Errorf("failed to create logs directory: %w", err)
 		}
-
 		file, err := os.OpenFile(config.LogFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open log file: %w", err)
 		}
-
 		writers = append(writers, file)
 	}
-
 	return &JSONLogger{
 		writers:  writers,
-		context:  make(map[string]interface{}),
 		service:  config.ServiceName,
 		minLevel: config.MinLevel,
 	}, nil
@@ -153,63 +112,116 @@ func NewJSONLogger(config *Config) (Logger, error) {
 // JSONLogger implements Logger with JSON formatting and file output
 type JSONLogger struct {
 	writers  []io.Writer
-	context  map[string]interface{}
-	traceID  string
 	service  string
 	minLevel LogLevel
 	mu       sync.RWMutex
 }
 
-// log writes a structured log entry
-func (l *JSONLogger) log(level LogLevel, msg string, args ...interface{}) {
+// log writes a structured log entry, extracting context fields from ctx
+func (l *JSONLogger) log(ctx context.Context, level LogLevel, msg string, args ...interface{}) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
-	// Check if we should log this level
 	if !l.shouldLog(level) {
 		return
 	}
-
-	// Format message with args if provided
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
 
-	// Create log entry
+	if ctx == nil {
+		ctx = context.TODO()
+	}
+
+	contextFields := make(map[string]interface{})
+	if traceID, ok := ctx.Value(TraceIDKey).(string); ok && traceID != "" {
+		contextFields["trace_id"] = traceID
+	}
+	if reqID, ok := ctx.Value(RequestIDKey).(string); ok && reqID != "" {
+		contextFields["request_id"] = reqID
+	}
+
 	entry := LogEntry{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Level:     level,
 		Message:   msg,
-		Context:   l.copyContext(),
-		TraceID:   l.traceID,
+		Context:   contextFields,
 		Service:   l.service,
 	}
 
-	// Marshal to JSON
 	jsonBytes, err := json.Marshal(entry)
 	if err != nil {
-		// Fallback to plain text if JSON marshaling fails
 		fmt.Fprintf(os.Stderr, "Failed to marshal log entry: %v\n", err)
 		return
 	}
-
-	// Add newline
 	jsonBytes = append(jsonBytes, '\n')
-
-	// Write to all configured writers
 	for _, w := range l.writers {
 		if _, err := w.Write(jsonBytes); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to write log: %v\n", err)
 		}
 	}
-
-	// Exit if fatal
 	if level == LevelFatal {
 		os.Exit(1)
 	}
 }
 
-// shouldLog checks if a log level should be logged based on minimum level
+func (l *JSONLogger) Info(ctx context.Context, msg string, args ...interface{}) {
+	l.log(ctx, LevelInfo, msg, args...)
+}
+func (l *JSONLogger) Error(ctx context.Context, msg string, args ...interface{}) {
+	l.log(ctx, LevelError, msg, args...)
+}
+func (l *JSONLogger) Warn(ctx context.Context, msg string, args ...interface{}) {
+	l.log(ctx, LevelWarn, msg, args...)
+}
+func (l *JSONLogger) Debug(ctx context.Context, msg string, args ...interface{}) {
+	l.log(ctx, LevelDebug, msg, args...)
+}
+func (l *JSONLogger) Fatal(ctx context.Context, msg string, args ...interface{}) {
+	l.log(ctx, LevelFatal, msg, args...)
+}
+
+func (l *JSONLogger) InfoJSON(ctx context.Context, payload map[string]interface{}) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	if !l.shouldLog(LevelInfo) {
+		return
+	}
+
+	contextFields := make(map[string]interface{})
+	if traceID, ok := ctx.Value(TraceIDKey).(string); ok && traceID != "" {
+		contextFields["trace_id"] = traceID
+	}
+	if reqID, ok := ctx.Value(RequestIDKey).(string); ok && reqID != "" {
+		contextFields["request_id"] = reqID
+	}
+	// Merge payload into context
+	for k, v := range payload {
+		contextFields[k] = v
+	}
+
+	entry := LogEntry{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Level:     LevelInfo,
+		Message:   "",
+		Context:   contextFields,
+		Service:   l.service,
+	}
+
+	jsonBytes, err := json.Marshal(entry)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to marshal log entry: %v\n", err)
+		return
+	}
+	jsonBytes = append(jsonBytes, '\n')
+	for _, w := range l.writers {
+		if _, err := w.Write(jsonBytes); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to write log: %v\n", err)
+		}
+	}
+}
+
 func (l *JSONLogger) shouldLog(level LogLevel) bool {
 	levels := map[LogLevel]int{
 		LevelDebug: 0,
@@ -221,130 +233,9 @@ func (l *JSONLogger) shouldLog(level LogLevel) bool {
 	return levels[level] >= levels[l.minLevel]
 }
 
-// copyContext creates a copy of the context map for thread safety
-func (l *JSONLogger) copyContext() map[string]interface{} {
-	if len(l.context) == 0 {
-		return nil
-	}
-
-	copied := make(map[string]interface{}, len(l.context))
-	for k, v := range l.context {
-		copied[k] = v
-	}
-	return copied
-}
-
-// clone creates a new logger instance with copied configuration
-func (l *JSONLogger) clone() *JSONLogger {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-
-	return &JSONLogger{
-		writers:  l.writers, // Writers are shared (safe for concurrent use)
-		context:  l.copyContext(),
-		traceID:  l.traceID,
-		service:  l.service,
-		minLevel: l.minLevel,
-	}
-}
-
-// Info logs an informational message
-func (l *JSONLogger) Info(msg string, args ...interface{}) {
-	l.log(LevelInfo, msg, args...)
-}
-
-func (l *JSONLogger) InfoJSON(payload map[string]interface{}) {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-
-	if !l.shouldLog(LevelInfo) {
-		return
-	}
-
-	// Merge payload into context for this log entry
-	context := l.copyContext()
-	if context == nil {
-		context = make(map[string]interface{})
-	}
-	for k, v := range payload {
-		context[k] = v
-	}
-
-	entry := LogEntry{
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Level:     LevelInfo,
-		Message:   "", // Message is optional for InfoJSON
-		Context:   context,
-		TraceID:   l.traceID,
-		Service:   l.service,
-	}
-
-	jsonBytes, err := json.Marshal(entry)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to marshal log entry: %v\n", err)
-		return
-	}
-	jsonBytes = append(jsonBytes, '\n')
-
-	for _, w := range l.writers {
-		if _, err := w.Write(jsonBytes); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to write log: %v\n", err)
-		}
-	}
-}
-
-// Error logs an error message
-func (l *JSONLogger) Error(msg string, args ...interface{}) {
-	l.log(LevelError, msg, args...)
-}
-
-// Warn logs a warning message
-func (l *JSONLogger) Warn(msg string, args ...interface{}) {
-	l.log(LevelWarn, msg, args...)
-}
-
-// Debug logs a debug message
-func (l *JSONLogger) Debug(msg string, args ...interface{}) {
-	l.log(LevelDebug, msg, args...)
-}
-
-// Fatal logs a fatal message and exits
-func (l *JSONLogger) Fatal(msg string, args ...interface{}) {
-	l.log(LevelFatal, msg, args...)
-}
-
-// WithContext returns a new logger instance with additional context fields
-// This creates a clone, so it's safe for concurrent use
-func (l *JSONLogger) WithContext(fields map[string]interface{}) Logger {
-	newLogger := l.clone()
-
-	// Merge new fields into context
-	for k, v := range fields {
-		newLogger.context[k] = v
-	}
-
-	return newLogger
-}
-
-// WithTraceID returns a new logger instance with trace ID
-func (l *JSONLogger) WithTraceID(traceID string) Logger {
-	newLogger := l.clone()
-	newLogger.traceID = traceID
-	return newLogger
-}
-
-// WithField returns a new logger instance with a single field
-func (l *JSONLogger) WithField(key string, value interface{}) Logger {
-	newLogger := l.clone()
-	newLogger.context[key] = value
-	return newLogger
-}
-
-// Close closes any open file handles
 func (l *JSONLogger) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-
 	for _, w := range l.writers {
 		if closer, ok := w.(io.Closer); ok {
 			if err := closer.Close(); err != nil {
